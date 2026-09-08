@@ -1,9 +1,16 @@
 import React, {createContext, useCallback, useContext, useEffect, useState} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {INITIAL_BOOSTERS} from '../game/boosterConfig';
 
 const STORAGE_KEY = '@merglix/game-progress';
 const INITIAL_SETTINGS = {sound: true, music: true, vibration: true};
-const INITIAL_PROGRESS = {coins: 0, level: 1, levelStars: {}, settings: INITIAL_SETTINGS};
+const INITIAL_PROGRESS = {
+  coins: 0,
+  level: 1,
+  levelStars: {},
+  boosters: INITIAL_BOOSTERS,
+  settings: INITIAL_SETTINGS,
+};
 const GameProgressContext = createContext(null);
 
 export function GameProgressProvider({children}) {
@@ -14,7 +21,19 @@ export function GameProgressProvider({children}) {
       .then(value => {
         if (value) {
           const saved = JSON.parse(value);
-          setProgress({...INITIAL_PROGRESS, ...saved, settings: {...INITIAL_SETTINGS, ...saved.settings}});
+          const completedLevels = Object.entries(saved.levelStars ?? {})
+            .filter(([, stars]) => stars > 0)
+            .map(([levelNumber]) => Number(levelNumber));
+          const unlockedFromStars = completedLevels.length > 0
+            ? Math.max(...completedLevels) + 1
+            : 1;
+          setProgress({
+            ...INITIAL_PROGRESS,
+            ...saved,
+            level: Math.max(saved.level ?? 1, unlockedFromStars),
+            boosters: {...INITIAL_BOOSTERS, ...saved.boosters},
+            settings: {...INITIAL_SETTINGS, ...saved.settings},
+          });
         }
       })
       .catch(() => {});
@@ -41,6 +60,7 @@ export function GameProgressProvider({children}) {
           ...current.levelStars,
           [levelNumber]: Math.max(current.levelStars?.[levelNumber] ?? 0, stars),
         },
+        level: Math.max(current.level, levelNumber + 1),
       })),
     [updateProgress],
   );
@@ -50,8 +70,20 @@ export function GameProgressProvider({children}) {
     [updateProgress],
   );
 
+  const consumeBooster = useCallback(
+    name => updateProgress(current => {
+      const quantity = current.boosters?.[name] ?? 0;
+      if (quantity <= 0) return current;
+      return {
+        ...current,
+        boosters: {...current.boosters, [name]: quantity - 1},
+      };
+    }),
+    [updateProgress],
+  );
+
   return (
-    <GameProgressContext.Provider value={{...progress, addCoins, saveLevelStars, updateProgress, updateSettings}}>
+    <GameProgressContext.Provider value={{...progress, addCoins, consumeBooster, saveLevelStars, updateProgress, updateSettings}}>
       {children}
     </GameProgressContext.Provider>
   );

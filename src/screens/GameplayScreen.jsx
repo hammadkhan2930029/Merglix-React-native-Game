@@ -19,37 +19,59 @@ import {
   responsiveFontSize as rf,
 } from 'react-native-responsive-dimensions';
 import ShelfBoard from '../components/game/ShelfBoard';
+import BoosterBar from '../components/game/BoosterBar';
 import LevelCompleteModal from '../components/game/LevelCompleteModal';
-import {createLevelBoard, detectMatches, findHintSwap, swapSlots} from '../game/boardLogic';
-import {LEVEL_CONFIGS} from '../game/levelConfigs';
+import {
+  createLevelBoard,
+  detectMatches,
+  findHintSwap,
+  findMagnetHintIds,
+  shuffleRemainingBoard,
+  swapSlots,
+} from '../game/boardLogic';
+import {LEVEL_CONFIGS, SHELF_ASSETS} from '../game/levelConfigs';
+import {BOOSTER_CONFIG} from '../game/boosterConfig';
 import useGameSounds from '../hooks/useGameSounds';
 import {useGameProgress} from '../context/GameProgressContext';
 import useEntranceAnimation from '../hooks/useEntranceAnimation';
 
 const background = require('../assets/menu-background.png');
 const timerClock = require('../assets/timer-clock-3d.png');
-const config = LEVEL_CONFIGS[1];
-
 function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
   return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+function getStars(timeLeft, config) {
+  if (timeLeft >= config.starThresholds.three) return 3;
+  if (timeLeft >= config.starThresholds.two) return 2;
+  return 1;
+}
+
 export default function GameplayScreen({navigation, route}) {
   const {width, height} = useWindowDimensions();
   const playSound = useGameSounds();
-  const {addCoins, saveLevelStars} = useGameProgress();
-  const level = route?.params?.level ?? 1;
+  const {addCoins, boosters, consumeBooster, saveLevelStars} = useGameProgress();
+  const requestedLevel = route?.params?.level ?? 1;
+  const config = LEVEL_CONFIGS[requestedLevel] ?? LEVEL_CONFIGS[1];
+  const level = config.level;
   const entranceStyle = useEntranceAnimation(50, 18);
   const timeoutRef = useRef(null);
   const hintTimerRef = useRef(null);
+  const magnetTimerRef = useRef(null);
+  const freezeTimerRef = useRef(null);
+  const boosterTimerRef = useRef(null);
+  const feedbackTimerRef = useRef(null);
   const matchResolutionRef = useRef(null);
+  const completedMatchesRef = useRef(0);
   const completedRef = useRef(false);
+  const boosterGuardRef = useRef({magnet: false, shuffle: false, freeze: false});
   const [board, setBoard] = useState(() => createLevelBoard(config));
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [matchingIndices, setMatchingIndices] = useState(new Set());
   const [inputLocked, setInputLocked] = useState(false);
   const [matchCoins, setMatchCoins] = useState(0);
+  const [completedMatches, setCompletedMatches] = useState(0);
   const [timeLeft, setTimeLeft] = useState(config.durationSeconds);
   const [paused, setPaused] = useState(false);
   const [timeUp, setTimeUp] = useState(false);
@@ -57,6 +79,10 @@ export default function GameplayScreen({navigation, route}) {
   const [coinFeedback, setCoinFeedback] = useState(null);
   const [hintIndices, setHintIndices] = useState(new Set());
   const [activityVersion, setActivityVersion] = useState(0);
+  const [magnetProductIds, setMagnetProductIds] = useState(new Set());
+  const [isShuffling, setIsShuffling] = useState(false);
+  const [isTimeFrozen, setIsTimeFrozen] = useState(false);
+  const [boosterFeedback, setBoosterFeedback] = useState('');
 
   const boardSize = Math.min(width * 0.94, height * 0.59, 620);
 
@@ -64,23 +90,35 @@ export default function GameplayScreen({navigation, route}) {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
+    [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef]
+      .forEach(timer => {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = null;
+      });
     completedRef.current = false;
+    boosterGuardRef.current = {magnet: false, shuffle: false, freeze: false};
     setBoard(createLevelBoard(config));
     setSelectedIndex(null);
     setMatchingIndices(new Set());
     setInputLocked(false);
     setMatchCoins(0);
+    completedMatchesRef.current = 0;
+    setCompletedMatches(0);
     setTimeLeft(config.durationSeconds);
     setPaused(false);
     setTimeUp(false);
     setComplete(false);
     setCoinFeedback(null);
     setHintIndices(new Set());
+    setMagnetProductIds(new Set());
+    setIsShuffling(false);
+    setIsTimeFrozen(false);
+    setBoosterFeedback('');
     matchResolutionRef.current = null;
-  }, []);
+  }, [config]);
 
   useEffect(() => {
-    if (paused || complete || timeUp || inputLocked) {
+    if (paused || complete || timeUp || inputLocked || isTimeFrozen) {
       return undefined;
     }
 
@@ -96,7 +134,7 @@ export default function GameplayScreen({navigation, route}) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [complete, inputLocked, paused, timeUp]);
+  }, [complete, inputLocked, isTimeFrozen, paused, timeUp]);
 
   useEffect(
     () => () => {
@@ -104,6 +142,10 @@ export default function GameplayScreen({navigation, route}) {
         clearTimeout(timeoutRef.current);
       }
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+      [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef]
+        .forEach(timer => {
+          if (timer.current) clearTimeout(timer.current);
+        });
     },
     [],
   );
@@ -115,12 +157,104 @@ export default function GameplayScreen({navigation, route}) {
       setHintIndices(new Set(hint ?? []));
     }, 5500);
     return () => clearTimeout(hintTimerRef.current);
-  }, [activityVersion, board, complete, inputLocked, paused, timeUp]);
+  }, [activityVersion, board, complete, config, inputLocked, paused, timeUp]);
 
   const registerActivity = useCallback(() => {
     setHintIndices(new Set());
     setActivityVersion(current => current + 1);
   }, []);
+
+  const showBoosterFeedback = useCallback(message => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    setBoosterFeedback(message);
+    feedbackTimerRef.current = setTimeout(() => setBoosterFeedback(''), 1600);
+  }, []);
+
+  const handleMagnet = useCallback(() => {
+    if (inputLocked || paused || timeUp || complete || isShuffling ||
+        boosterGuardRef.current.magnet || magnetProductIds.size > 0 ||
+        boosters.magnet <= 0) return;
+    const productIds = findMagnetHintIds(board, config.matchSize);
+    if (!productIds) {
+      showBoosterFeedback('No matching group available');
+      return;
+    }
+    boosterGuardRef.current.magnet = true;
+    consumeBooster('magnet');
+    playSound('click');
+    registerActivity();
+    setMagnetProductIds(new Set(productIds));
+    magnetTimerRef.current = setTimeout(() => {
+      setMagnetProductIds(new Set());
+      boosterGuardRef.current.magnet = false;
+      magnetTimerRef.current = null;
+    }, BOOSTER_CONFIG.magnet.highlightDurationMs);
+  }, [board, boosters.magnet, complete, config.matchSize, consumeBooster,
+    inputLocked, isShuffling, magnetProductIds.size, paused, playSound,
+    registerActivity,
+    showBoosterFeedback, timeUp]);
+
+  const handleShuffle = useCallback(() => {
+    if (inputLocked || paused || timeUp || complete || isShuffling ||
+        boosterGuardRef.current.shuffle || magnetProductIds.size > 0 ||
+        boosters.shuffle <= 0) return;
+    const shuffledBoard = shuffleRemainingBoard(
+      board,
+      config,
+      BOOSTER_CONFIG.shuffle.retryLimit,
+    );
+    if (!shuffledBoard) {
+      showBoosterFeedback('No valid shuffle available');
+      return;
+    }
+    boosterGuardRef.current.shuffle = true;
+    consumeBooster('shuffle');
+    playSound('click');
+    setIsShuffling(true);
+    setInputLocked(true);
+    setSelectedIndex(null);
+    setHintIndices(new Set());
+    setBoard(shuffledBoard);
+    boosterTimerRef.current = setTimeout(() => {
+      setIsShuffling(false);
+      setInputLocked(false);
+      boosterGuardRef.current.shuffle = false;
+      boosterTimerRef.current = null;
+      setActivityVersion(current => current + 1);
+    }, BOOSTER_CONFIG.shuffle.animationDurationMs);
+  }, [board, boosters.shuffle, complete, config, consumeBooster, inputLocked,
+    isShuffling, magnetProductIds.size, paused, playSound,
+    showBoosterFeedback, timeUp]);
+
+  const handleFreeze = useCallback(() => {
+    if (inputLocked || paused || timeUp || complete || isShuffling ||
+        boosterGuardRef.current.freeze || isTimeFrozen ||
+        magnetProductIds.size > 0 || boosters.freeze <= 0) return;
+    boosterGuardRef.current.freeze = true;
+    consumeBooster('freeze');
+    playSound('click');
+    setIsTimeFrozen(true);
+    freezeTimerRef.current = setTimeout(() => {
+      setIsTimeFrozen(false);
+      boosterGuardRef.current.freeze = false;
+      freezeTimerRef.current = null;
+    }, BOOSTER_CONFIG.freeze.durationMs);
+  }, [boosters.freeze, complete, consumeBooster, inputLocked, isShuffling,
+    isTimeFrozen, magnetProductIds.size, paused, playSound, timeUp]);
+
+  useEffect(() => {
+    if (!complete && !timeUp) return;
+    if (freezeTimerRef.current) clearTimeout(freezeTimerRef.current);
+    if (magnetTimerRef.current) clearTimeout(magnetTimerRef.current);
+    if (boosterTimerRef.current) clearTimeout(boosterTimerRef.current);
+    freezeTimerRef.current = null;
+    magnetTimerRef.current = null;
+    boosterTimerRef.current = null;
+    setIsTimeFrozen(false);
+    setIsShuffling(false);
+    setMagnetProductIds(new Set());
+    boosterGuardRef.current = {magnet: false, shuffle: false, freeze: false};
+  }, [complete, timeUp]);
 
   const finishMatchAnimation = useCallback(() => {
     const resolution = matchResolutionRef.current;
@@ -131,7 +265,7 @@ export default function GameplayScreen({navigation, route}) {
     const cleared = resolution.board.map((item, index) =>
       resolution.indices.has(index) ? null : item,
     );
-    const isComplete = cleared.every(item => item === null);
+    const isComplete = resolution.levelComplete;
     playSound('match');
     setBoard(cleared);
     setMatchingIndices(new Set());
@@ -139,14 +273,14 @@ export default function GameplayScreen({navigation, route}) {
 
     if (isComplete && !completedRef.current) {
       completedRef.current = true;
-      const earnedStars = timeLeft >= 100 ? 3 : timeLeft >= 50 ? 2 : 1;
+      const earnedStars = getStars(timeLeft, config);
       saveLevelStars(level, earnedStars);
       setComplete(true);
       playSound('complete');
     } else {
       setInputLocked(false);
     }
-  }, [level, playSound, saveLevelStars, timeLeft]);
+  }, [config, level, playSound, saveLevelStars, timeLeft]);
 
   const resolveMatches = useCallback(
     nextBoard => {
@@ -164,6 +298,8 @@ export default function GameplayScreen({navigation, route}) {
 
       const indices = new Set(groups.flat());
       const reward = groups.length * config.matchReward;
+      completedMatchesRef.current += groups.length;
+      setCompletedMatches(completedMatchesRef.current);
       setInputLocked(true);
       setHintIndices(new Set());
       setSelectedIndex(null);
@@ -171,12 +307,16 @@ export default function GameplayScreen({navigation, route}) {
       setMatchCoins(current => current + reward);
       addCoins(reward);
       setCoinFeedback(`+${reward}`);
-      matchResolutionRef.current = {board: nextBoard, indices};
+      matchResolutionRef.current = {
+        board: nextBoard,
+        indices,
+        levelComplete: completedMatchesRef.current >= config.targetMatches,
+      };
       // Safety fallback only. Normally ProductItem calls completion from the
       // actual UI-thread disappear animation at exactly 400ms.
       timeoutRef.current = setTimeout(finishMatchAnimation, 650);
     },
-    [addCoins, finishMatchAnimation],
+    [addCoins, config, finishMatchAnimation],
   );
 
   const moveProduct = useCallback(
@@ -232,9 +372,17 @@ export default function GameplayScreen({navigation, route}) {
           <View style={styles.headerLevelPill}>
             <Text style={styles.headerLevelText}>Level {level}</Text>
           </View>
-          <View style={styles.headerTimer}>
+          <View style={[styles.headerTimer, isTimeFrozen && styles.frozenTimer]}>
             <Image source={timerClock} resizeMode="contain" style={styles.timerClock} />
             <Text style={styles.headerTimerText}>{formatTime(timeLeft)}</Text>
+            {isTimeFrozen ? (
+              <MaterialCommunityIcons
+                color="#CFF8FF"
+                name="snowflake"
+                size={rf(2.1)}
+                style={styles.freezeIndicator}
+              />
+            ) : null}
           </View>
           <Pressable onPress={() => setPaused(true)} style={styles.pauseButton}>
             <MaterialCommunityIcons color="#FFFFFF" name="pause" size={rf(2.2)} />
@@ -249,11 +397,13 @@ export default function GameplayScreen({navigation, route}) {
             disabled={inputLocked || paused || complete || timeUp}
             matchingIndices={matchingIndices}
             hintIndices={hintIndices}
+            highlightedProductIds={magnetProductIds}
             onInteraction={registerActivity}
             onMatchAnimationComplete={finishMatchAnimation}
             onDrop={handleDrop}
             onTap={handleTap}
             rows={config.rows}
+            shelfSource={SHELF_ASSETS[config.shelf]}
             selectedIndex={selectedIndex}
           />
           {coinFeedback ? (
@@ -261,8 +411,22 @@ export default function GameplayScreen({navigation, route}) {
           ) : null}
         </View>
 
+        {boosterFeedback ? (
+          <Text style={styles.boosterFeedback}>{boosterFeedback}</Text>
+        ) : null}
+        <BoosterBar
+          boosters={boosters}
+          busy={inputLocked || paused || timeUp || complete || isShuffling || magnetProductIds.size > 0}
+          freezeActive={isTimeFrozen}
+          magnetActive={magnetProductIds.size > 0}
+          onFreeze={handleFreeze}
+          onMagnet={handleMagnet}
+          onShuffle={handleShuffle}
+          shuffleActive={isShuffling}
+        />
+
         <Text style={styles.instruction}>
-          Drag or tap two items to swap • Match 3 on one shelf
+          Match 3 on one shelf  •  {completedMatches}/{config.targetMatches}
         </Text>
         </Animated.View>
       </SafeAreaView>
@@ -290,9 +454,15 @@ export default function GameplayScreen({navigation, route}) {
         coins={matchCoins}
         level={level}
         onHome={() => navigation.navigate('MainTabs', {screen: 'Home'})}
-        onNext={() => navigation.goBack()}
+        onNext={() => {
+          if (LEVEL_CONFIGS[level + 1]) {
+            navigation.replace('Gameplay', {level: level + 1});
+          } else {
+            navigation.navigate('LevelSelect');
+          }
+        }}
         score={(matchCoins / config.matchReward) * 1000 + timeLeft * 10}
-        stars={timeLeft >= 100 ? 3 : timeLeft >= 50 ? 2 : 1}
+        stars={getStars(timeLeft, config)}
         visible={complete}
       />
     </ImageBackground>
@@ -350,6 +520,12 @@ const styles = StyleSheet.create({
     height: '78%', paddingLeft: wp(0.5), paddingRight: wp(3), flexDirection: 'row',
     alignItems: 'center', gap: wp(1), borderRadius: wp(5), backgroundColor: '#291044',
   },
+  frozenTimer: {
+    backgroundColor: '#145F91',
+    borderWidth: wp(0.35),
+    borderColor: '#BCEFFF',
+  },
+  freezeIndicator: {marginLeft: -wp(1.7), marginRight: -wp(1.5)},
   timerClock: {width: Math.min(hp(5.8), wp(12)), height: Math.min(hp(5.8), wp(12)), marginLeft: -wp(1.2)},
   headerTimerText: {
     color: '#FFFFFF', fontSize: rf(2), fontWeight: '900', letterSpacing: wp(0.12),
@@ -375,6 +551,13 @@ const styles = StyleSheet.create({
     textShadowColor: '#633000',
     textShadowOffset: {width: 0, height: hp(0.3)},
     textShadowRadius: wp(1),
+  },
+  boosterFeedback: {
+    marginBottom: hp(0.4),
+    color: '#FFE36B',
+    fontSize: rf(1.15),
+    fontWeight: '900',
+    textAlign: 'center',
   },
   instruction: {
     marginBottom: hp(2),

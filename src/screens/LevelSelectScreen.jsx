@@ -4,17 +4,17 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useGameProgress} from '../context/GameProgressContext';
 import useEntranceAnimation from '../hooks/useEntranceAnimation';
+import {LEVEL_CONFIGS} from '../game/levelConfigs';
 
 const WORLDS = [
   {id: 1, levels: Array.from({length: 16}, (_, index) => index + 1)},
   {id: 2, levels: Array.from({length: 4}, (_, index) => index + 17)},
 ];
-const PLAYABLE_LEVELS = new Set([1]);
 const coin3d = require('../assets/coin-3d.png');
 
 export default function LevelSelectScreen({navigation}) {
   const {width} = useWindowDimensions();
-  const {coins, levelStars = {}} = useGameProgress();
+  const {coins, level: unlockedLevel, levelStars = {}} = useGameProgress();
   const entranceStyle = useEntranceAnimation(70, 24);
   const contentWidth = Math.min(width * 0.9, 500);
   const gap = Math.max(12, Math.min(22, contentWidth * 0.065));
@@ -45,6 +45,7 @@ export default function LevelSelectScreen({navigation}) {
               gap={gap}
               key={world.id}
               levelStars={levelStars}
+              unlockedLevel={unlockedLevel}
               navigation={navigation}
               world={world}
             />
@@ -55,7 +56,7 @@ export default function LevelSelectScreen({navigation}) {
   );
 }
 
-function WorldSection({world, cardSize, gap, levelStars, navigation}) {
+function WorldSection({world, cardSize, gap, levelStars, navigation, unlockedLevel}) {
   return (
     <View style={[styles.worldSection, world.id === 2 && styles.secondWorld]}>
       <View style={styles.ribbonWrap}>
@@ -67,7 +68,7 @@ function WorldSection({world, cardSize, gap, levelStars, navigation}) {
           <LevelCard
             key={levelNumber}
             level={levelNumber}
-            locked={!PLAYABLE_LEVELS.has(levelNumber)}
+            locked={levelNumber > unlockedLevel || !LEVEL_CONFIGS[levelNumber]}
             onPress={() => navigation.navigate('Gameplay', {level: levelNumber})}
             size={cardSize}
             stars={levelStars[levelNumber] ?? 0}

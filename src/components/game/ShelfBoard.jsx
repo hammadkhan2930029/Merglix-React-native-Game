@@ -4,11 +4,9 @@ import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimate
 import {PRODUCT_ASSETS} from '../../game/levelConfigs';
 import ProductItem from './ProductItem';
 
-const shelfImage = require('../../assets/cupboard with 3 shelf.png');
-
 function ShelfBoard({board, rows, columns, boardSize, selectedIndex, matchingIndices,
   disabled, onTap, onDrop, onInteraction, hintIndices,
-  onMatchAnimationComplete}) {
+  highlightedProductIds, onMatchAnimationComplete, shelfSource}) {
   const activeTarget = useSharedValue(-1);
   const geometry = useMemo(() => {
     const horizontalInset = boardSize * 0.065;
@@ -38,7 +36,7 @@ function ShelfBoard({board, rows, columns, boardSize, selectedIndex, matchingInd
     : -1;
 
   return <View style={[styles.board, {width: boardSize, height: boardSize}]}>
-    <Image source={shelfImage} resizeMode="stretch" style={styles.shelf} />
+    <Image source={shelfSource} resizeMode="stretch" style={styles.shelf} />
     <Animated.View pointerEvents="none" style={[styles.dropTarget,
       {width: geometry.slotWidth, height: geometry.rowHeight}, targetStyle]} />
     {board.map((item, index) => {
@@ -53,7 +51,7 @@ function ShelfBoard({board, rows, columns, boardSize, selectedIndex, matchingInd
         matching={matchingIndices.has(index)}
         notifyMatchComplete={index === matchCompletionIndex}
         onMatchAnimationComplete={onMatchAnimationComplete}
-        hint={hintIndices.has(index)}
+        hint={hintIndices.has(index) || highlightedProductIds.has(item.id)}
         onDrop={onDrop}
         onInteraction={onInteraction}
         columns={columns}
