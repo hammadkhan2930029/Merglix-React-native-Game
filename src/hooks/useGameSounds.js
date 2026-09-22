@@ -8,6 +8,7 @@ const SOURCES = {
   match: require('../assets/soundEffects/coin.mp3'),
   complete: require('../assets/soundEffects/level-up.mp3'),
   click: require('../assets/soundEffects/btnClick1.mp3'),
+  coins: require('../assets/soundEffects/coins.mp3'),
 };
 
 // Metro exposes URLs in debug, while Android release packages these as raw
@@ -17,6 +18,7 @@ const ANDROID_RELEASE_SOURCES = {
   match: 'src_assets_soundeffects_coin',
   complete: 'src_assets_soundeffects_levelup',
   click: 'src_assets_soundeffects_btnclick1',
+  coins: 'src_assets_soundeffects_coins',
 };
 
 export default function useGameSounds() {

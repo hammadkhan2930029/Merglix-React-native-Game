@@ -78,6 +78,38 @@ function shuffle(items) {
   return result;
 }
 
+function createSafeFallback(pool, config, slotCount) {
+  const primaryType = config.productTypes.find(type =>
+    pool.filter(item => item.type === type).length >= config.matchSize,
+  );
+  const secondaryType = config.productTypes.find(type => type !== primaryType);
+  const remaining = [...pool];
+  const take = type => {
+    const index = remaining.findIndex(item => item.type === type);
+    return index < 0 ? null : remaining.splice(index, 1)[0];
+  };
+  const candidate = Array.from({length: slotCount}, () => null);
+
+  // A guaranteed hint: swapping row 2/column 1 into row 1/column 3
+  // completes the deliberately placed pair without starting with a match.
+  candidate[0] = take(primaryType);
+  candidate[1] = take(primaryType);
+  candidate[2] = take(secondaryType);
+  candidate[config.columns] = take(primaryType);
+
+  for (let slot = 0; slot < candidate.length; slot += 1) {
+    if (candidate[slot] || remaining.length === 0) continue;
+    const column = slot % config.columns;
+    const blockedType = column >= 2 &&
+      candidate[slot - 1]?.type === candidate[slot - 2]?.type
+      ? candidate[slot - 1].type
+      : null;
+    const itemIndex = Math.max(0, remaining.findIndex(item => item.type !== blockedType));
+    candidate[slot] = remaining.splice(itemIndex, 1)[0];
+  }
+  return candidate;
+}
+
 export function shuffleRemainingBoard(board, config, retryLimit = 200) {
   const originalOrder = board.map(item => item?.id ?? null);
   for (let attempt = 0; attempt < retryLimit; attempt += 1) {
@@ -122,6 +154,14 @@ export function createLevelBoard(config) {
     ) {
       return candidate;
     }
+  }
+
+  const fallback = createSafeFallback(pool, config, slotCount);
+  if (
+    detectMatches(fallback, config.rows, config.columns, config.matchSize).length === 0 &&
+    findHintSwap(fallback, config.rows, config.columns, config.matchSize)
+  ) {
+    return fallback;
   }
 
   throw new Error(`Unable to create a playable board for level ${config.level}`);

@@ -18,6 +18,7 @@ import {
 } from 'react-native-responsive-dimensions';
 import {useGameProgress} from '../context/GameProgressContext';
 import useEntranceAnimation from '../hooks/useEntranceAnimation';
+import {LEVEL_CONFIGS} from '../game/levelConfigs';
 
 const wp = widthPercentageToDP;
 const hp = heightPercentageToDP;
@@ -25,42 +26,6 @@ const hp = heightPercentageToDP;
 const logo = require('../assets/logo.png');
 const background = require('../assets/menu-background.png');
 const coin3d = require('../assets/coin-3d.png');
-const heart3d = require('../assets/heart-3d.png');
-
-export function StatusPill({
-  icon,
-  children,
-  onPress,
-  accent,
-  trailingIcon,
-  image,
-}) {
-  return (
-    <Pressable
-      accessibilityRole={onPress ? 'button' : 'text'}
-      onPress={onPress}
-      style={({pressed}) => [styles.statusPill, pressed && styles.pressed]}>
-      <View style={[styles.statusIcon, accent && {backgroundColor: accent}]}>
-        {image ? <Image source={image} resizeMode="contain" style={styles.statusImage} /> : <MaterialCommunityIcons
-          color="#FFFFFF"
-          name={icon}
-          size={rf(1.9)}
-        />}
-      </View>
-      <Text numberOfLines={1} style={styles.statusText}>
-        {children}
-      </Text>
-      {trailingIcon ? (
-        <MaterialCommunityIcons
-          color="#FFFFFF"
-          name={trailingIcon}
-          size={rf(1.8)}
-          style={styles.trailingIcon}
-        />
-      ) : null}
-    </Pressable>
-  );
-}
 
 export default function MainMenuScreen({
   onPlay = () => {},
@@ -69,6 +34,7 @@ export default function MainMenuScreen({
   onSettings = () => {},
 }) {
   const {coins, level} = useGameProgress();
+  const levelLabel = LEVEL_CONFIGS[level] ? `LEVEL ${level}` : 'WORLD 1 COMPLETE';
   const entranceStyle = useEntranceAnimation();
   const logoFloat = useRef(new Animated.Value(0)).current;
   const playPulse = useRef(new Animated.Value(1)).current;
@@ -106,18 +72,16 @@ export default function MainMenuScreen({
       <SafeAreaView edges={['top']} style={styles.safeArea}>
         <Animated.View style={[styles.animatedContent, entranceStyle]}>
         <View style={styles.topBar}>
-          <StatusPill image={heart3d}>
-            5  Full
-          </StatusPill>
-
           <View style={styles.topRightControls}>
-            <StatusPill
-              icon="circle-multiple"
-              image={coin3d}
+            <Pressable
+              accessibilityLabel={`${coins} coins. Open coin shop`}
+              accessibilityRole="button"
               onPress={onCoinShop}
-              trailingIcon="plus">
-              {coins}
-            </StatusPill>
+              style={({pressed}) => [styles.coinPill, pressed && styles.pressed]}>
+              <Image source={coin3d} resizeMode="contain" style={styles.coinImage} />
+              <Text numberOfLines={1} style={styles.coinText}>{coins}</Text>
+              <MaterialCommunityIcons color="#52DF36" name="plus-circle" size={17} />
+            </Pressable>
             <Pressable
               accessibilityLabel="Settings"
               accessibilityRole="button"
@@ -139,7 +103,7 @@ export default function MainMenuScreen({
           <Animated.Image source={logo} resizeMode="contain" style={[styles.logo, {transform: [{translateY: logoFloat.interpolate({inputRange: [0, 1], outputRange: [0, -7]})}]}]} />
 
           <View style={styles.levelBadge}>
-            <Text style={styles.levelText}>LEVEL {level}</Text>
+            <Text numberOfLines={1} style={styles.levelText}>{levelLabel}</Text>
           </View>
 
           <Animated.View style={{transform: [{scale: playPulse}]}}>
@@ -171,7 +135,7 @@ export default function MainMenuScreen({
               size={rf(2.7)}
               style={styles.giftIcon}
             />
-            <Text style={styles.rewardText}>DAILY REWARD</Text>
+            <Text style={styles.rewardText}>REWARDS</Text>
           </Pressable>
           </Animated.View>
         </View>
@@ -204,44 +168,18 @@ const styles = StyleSheet.create({
     paddingTop: hp(1.2),
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
   },
   topRightControls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp(2),
   },
-  statusPill: {
-    height: Math.min(hp(4.8), wp(10)),
-    minWidth: Math.min(wp(29), hp(17)),
-    paddingLeft: wp(1),
-    paddingRight: wp(3),
-    borderRadius: wp(6),
-    backgroundColor: '#2D1A61',
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#2A134F',
-    shadowOffset: {width: 0, height: hp(0.3)},
-    shadowOpacity: 0.3,
-    shadowRadius: wp(1),
-    elevation: 4,
-  },
-  statusIcon: {
-    width: Math.min(wp(8), hp(4.3)),
-    aspectRatio: 1,
-    marginRight: wp(1.2),
-    borderRadius: wp(5),
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: wp(0.35),
-    borderColor: 'rgba(255,255,255,0.55)',
-  },
-  statusImage: {width: '145%', height: '145%'},
-  statusText: {
-    color: '#FFFFFF',
-    fontSize: rf(1.45),
-    fontWeight: '800',
-  },
+  coinPill: {minWidth: 91, height: 31, paddingHorizontal: 7, gap: 5,
+    borderRadius: 17, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', backgroundColor: '#2D155B', elevation: 4},
+  coinText: {maxWidth: 46, color: '#FFF', fontSize: 12, fontWeight: '900'},
+  coinImage: {width: 28, height: 28},
   settingsButton: {
     width: Math.min(wp(11), hp(5.5)),
     aspectRatio: 1,
@@ -252,9 +190,6 @@ const styles = StyleSheet.create({
     borderWidth: wp(0.5),
     borderColor: '#D49BFF',
     elevation: 5,
-  },
-  trailingIcon: {
-    marginLeft: wp(1.3),
   },
   menuContent: {
     flex: 1,

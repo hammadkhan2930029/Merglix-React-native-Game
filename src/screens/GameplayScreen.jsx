@@ -20,7 +20,10 @@ import {
 } from 'react-native-responsive-dimensions';
 import ShelfBoard from '../components/game/ShelfBoard';
 import BoosterBar from '../components/game/BoosterBar';
+import BoosterUnlockModal from '../components/game/BoosterUnlockModal';
+import CoinDeductionPopup from '../components/game/CoinDeductionPopup';
 import LevelCompleteModal from '../components/game/LevelCompleteModal';
+import TimeUpModal from '../components/game/TimeUpModal';
 import {
   createLevelBoard,
   detectMatches,
@@ -29,9 +32,23 @@ import {
   shuffleRemainingBoard,
   swapSlots,
 } from '../game/boardLogic';
-import {LEVEL_CONFIGS, SHELF_ASSETS} from '../game/levelConfigs';
+import {getStarsForTime, LEVEL_CONFIGS, SHELF_ASSETS} from '../game/levelConfigs';
 import {BOOSTER_CONFIG} from '../game/boosterConfig';
+import {
+  getBoosterAvailability,
+  INITIAL_ATTEMPT_BOOSTER_USES,
+  isBoosterUnlocked,
+  normalizeBoosterState,
+} from '../game/boosterEconomy';
+import {getRewardBreakdown} from '../game/coinRewards';
+import {
+  calculateGameplayScore,
+  canContinueAfterTimeUp,
+  capStarsAfterContinues,
+  getContinueSeconds,
+} from '../game/timeUpConfig';
 import useGameSounds from '../hooks/useGameSounds';
+import useRewardedCoinsAd from '../hooks/useRewardedCoinsAd';
 import {useGameProgress} from '../context/GameProgressContext';
 import useEntranceAnimation from '../hooks/useEntranceAnimation';
 
@@ -43,15 +60,29 @@ function formatTime(seconds) {
 }
 
 function getStars(timeLeft, config) {
-  if (timeLeft >= config.starThresholds.three) return 3;
-  if (timeLeft >= config.starThresholds.two) return 2;
-  return 1;
+  return getStarsForTime(timeLeft, config.durationSeconds);
+}
+
+function createAttemptId(level) {
+  return `${level}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export default function GameplayScreen({navigation, route}) {
   const {width, height} = useWindowDimensions();
   const playSound = useGameSounds();
-  const {addCoins, boosters, consumeBooster, saveLevelStars} = useGameProgress();
+  const {
+    adRewardClaims,
+    awardMatchCoins,
+    rewardedAdClaims,
+    boosterState,
+    coins,
+    claimRewardedAd,
+    completeLevel,
+    dismissBoosterUnlock,
+    levelStars,
+    recordSuccessfulBoosterUse,
+    setRewardedAdShowing,
+  } = useGameProgress();
   const requestedLevel = route?.params?.level ?? 1;
   const config = LEVEL_CONFIGS[requestedLevel] ?? LEVEL_CONFIGS[1];
   const level = config.level;
@@ -62,15 +93,23 @@ export default function GameplayScreen({navigation, route}) {
   const freezeTimerRef = useRef(null);
   const boosterTimerRef = useRef(null);
   const feedbackTimerRef = useRef(null);
+  const coinFeedbackTimerRef = useRef(null);
   const matchResolutionRef = useRef(null);
   const completedMatchesRef = useRef(0);
+  const matchCoinsRef = useRef(0);
   const completedRef = useRef(false);
+  const adPurposeRef = useRef(null);
+  const attemptIdRef = useRef(createAttemptId(level));
   const boosterGuardRef = useRef({magnet: false, shuffle: false, freeze: false});
   const [board, setBoard] = useState(() => createLevelBoard(config));
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [matchingIndices, setMatchingIndices] = useState(new Set());
   const [inputLocked, setInputLocked] = useState(false);
-  const [matchCoins, setMatchCoins] = useState(0);
+  const [rewardSummary, setRewardSummary] = useState({
+    matchCoins: 0,
+    completionCoins: 0,
+    totalCoins: 0,
+  });
   const [completedMatches, setCompletedMatches] = useState(0);
   const [timeLeft, setTimeLeft] = useState(config.durationSeconds);
   const [paused, setPaused] = useState(false);
@@ -83,14 +122,57 @@ export default function GameplayScreen({navigation, route}) {
   const [isShuffling, setIsShuffling] = useState(false);
   const [isTimeFrozen, setIsTimeFrozen] = useState(false);
   const [boosterFeedback, setBoosterFeedback] = useState('');
+  const [continuesUsed, setContinuesUsed] = useState(0);
+  const [isRewardedAdVisible, setIsRewardedAdVisible] = useState(false);
+  const [boosterUses, setBoosterUses] = useState({...INITIAL_ATTEMPT_BOOSTER_USES});
+  const [coinDeduction, setCoinDeduction] = useState(null);
+  const normalizedBoosterState = normalizeBoosterState(boosterState);
+  const unseenUnlockedBooster = ['magnet', 'shuffle', 'freeze'].find(name =>
+    isBoosterUnlocked(name, level) && !normalizedBoosterState[`${name}UnlockSeen`],
+  );
+
+  const handleAdRewardEarned = useCallback(() => {
+    if (adPurposeRef.current === 'continue') {
+      setContinuesUsed(current => {
+        const seconds = getContinueSeconds(current);
+        if (!seconds) return current;
+        setTimeLeft(seconds);
+        setTimeUp(false);
+        setInputLocked(false);
+        playSound('click');
+        return current + 1;
+      });
+      adPurposeRef.current = null;
+      return;
+    }
+    if (adPurposeRef.current === 'levelComplete') {
+      claimRewardedAd(attemptIdRef.current);
+      playSound('coins');
+      adPurposeRef.current = null;
+    }
+  }, [claimRewardedAd, playSound]);
+  const handleAdVisibilityChange = useCallback(showing => {
+    setIsRewardedAdVisible(showing);
+    setRewardedAdShowing(showing);
+  }, [setRewardedAdShowing]);
+  const rewardedAd = useRewardedCoinsAd(
+    handleAdRewardEarned,
+    handleAdVisibilityChange,
+  );
+  const rewardedCoinsClaimed = Boolean(
+    rewardedAdClaims?.[attemptIdRef.current] ||
+      adRewardClaims?.includes(attemptIdRef.current),
+  );
 
   const boardSize = Math.min(width * 0.94, height * 0.59, 620);
+  const shelfHeightRatio = config.rows === 5 ? 1.18 : config.rows === 4 ? 1.05 : 1;
+  const boardHeight = Math.min(boardSize * shelfHeightRatio, height * 0.62);
 
   const restartLevel = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef]
+    [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef, coinFeedbackTimerRef]
       .forEach(timer => {
         if (timer.current) clearTimeout(timer.current);
         timer.current = null;
@@ -101,7 +183,9 @@ export default function GameplayScreen({navigation, route}) {
     setSelectedIndex(null);
     setMatchingIndices(new Set());
     setInputLocked(false);
-    setMatchCoins(0);
+    matchCoinsRef.current = 0;
+    attemptIdRef.current = createAttemptId(level);
+    setRewardSummary({matchCoins: 0, completionCoins: 0, totalCoins: 0});
     completedMatchesRef.current = 0;
     setCompletedMatches(0);
     setTimeLeft(config.durationSeconds);
@@ -114,11 +198,16 @@ export default function GameplayScreen({navigation, route}) {
     setIsShuffling(false);
     setIsTimeFrozen(false);
     setBoosterFeedback('');
+    setContinuesUsed(0);
+    setIsRewardedAdVisible(false);
+    setBoosterUses({...INITIAL_ATTEMPT_BOOSTER_USES});
+    setCoinDeduction(null);
+    adPurposeRef.current = null;
     matchResolutionRef.current = null;
-  }, [config]);
+  }, [config, level]);
 
   useEffect(() => {
-    if (paused || complete || timeUp || inputLocked || isTimeFrozen) {
+    if (paused || complete || timeUp || inputLocked || isTimeFrozen || isRewardedAdVisible) {
       return undefined;
     }
 
@@ -134,7 +223,13 @@ export default function GameplayScreen({navigation, route}) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [complete, inputLocked, isTimeFrozen, paused, timeUp]);
+  }, [complete, inputLocked, isRewardedAdVisible, isTimeFrozen, paused, timeUp]);
+
+  useEffect(() => {
+    if (rewardedAd.status !== 'earnedClosed') return undefined;
+    const timer = setTimeout(rewardedAd.retry, 900);
+    return () => clearTimeout(timer);
+  }, [rewardedAd.retry, rewardedAd.status]);
 
   useEffect(
     () => () => {
@@ -142,7 +237,7 @@ export default function GameplayScreen({navigation, route}) {
         clearTimeout(timeoutRef.current);
       }
       if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
-      [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef]
+      [magnetTimerRef, freezeTimerRef, boosterTimerRef, feedbackTimerRef, coinFeedbackTimerRef]
         .forEach(timer => {
           if (timer.current) clearTimeout(timer.current);
         });
@@ -170,17 +265,45 @@ export default function GameplayScreen({navigation, route}) {
     feedbackTimerRef.current = setTimeout(() => setBoosterFeedback(''), 1600);
   }, []);
 
+  const validateBooster = useCallback(name => {
+    const availability = getBoosterAvailability({
+      name, level, coins, boosterState, uses: boosterUses,
+    });
+    if (availability.allowed) return availability;
+    if (availability.reason === 'locked') {
+      showBoosterFeedback(`Unlocks at Level ${availability.unlockLevel}`);
+    } else if (availability.reason === 'limit') {
+      showBoosterFeedback('Use limit reached for this level');
+    } else {
+      showBoosterFeedback(`Not enough coins - need ${availability.cost}`);
+    }
+    return null;
+  }, [boosterState, boosterUses, coins, level, showBoosterFeedback]);
+
+  const commitBoosterUse = useCallback((name, availability) => {
+    recordSuccessfulBoosterUse(name);
+    setBoosterUses(current => ({...current, [name]: current[name] + 1}));
+    if (availability.cost > 0) {
+      setCoinDeduction({amount: availability.cost, id: Date.now()});
+    }
+  }, [recordSuccessfulBoosterUse]);
+
+  const handleCoinDeductionComplete = useCallback(id => {
+    setCoinDeduction(current => current?.id === id ? null : current);
+  }, []);
+
   const handleMagnet = useCallback(() => {
     if (inputLocked || paused || timeUp || complete || isShuffling ||
-        boosterGuardRef.current.magnet || magnetProductIds.size > 0 ||
-        boosters.magnet <= 0) return;
+        boosterGuardRef.current.magnet || magnetProductIds.size > 0) return;
+    const availability = validateBooster('magnet');
+    if (!availability) return;
     const productIds = findMagnetHintIds(board, config.matchSize);
     if (!productIds) {
       showBoosterFeedback('No matching group available');
       return;
     }
     boosterGuardRef.current.magnet = true;
-    consumeBooster('magnet');
+    commitBoosterUse('magnet', availability);
     playSound('click');
     registerActivity();
     setMagnetProductIds(new Set(productIds));
@@ -189,15 +312,16 @@ export default function GameplayScreen({navigation, route}) {
       boosterGuardRef.current.magnet = false;
       magnetTimerRef.current = null;
     }, BOOSTER_CONFIG.magnet.highlightDurationMs);
-  }, [board, boosters.magnet, complete, config.matchSize, consumeBooster,
+  }, [board, commitBoosterUse, complete, config.matchSize,
     inputLocked, isShuffling, magnetProductIds.size, paused, playSound,
     registerActivity,
-    showBoosterFeedback, timeUp]);
+    showBoosterFeedback, timeUp, validateBooster]);
 
   const handleShuffle = useCallback(() => {
     if (inputLocked || paused || timeUp || complete || isShuffling ||
-        boosterGuardRef.current.shuffle || magnetProductIds.size > 0 ||
-        boosters.shuffle <= 0) return;
+        boosterGuardRef.current.shuffle || magnetProductIds.size > 0) return;
+    const availability = validateBooster('shuffle');
+    if (!availability) return;
     const shuffledBoard = shuffleRemainingBoard(
       board,
       config,
@@ -208,7 +332,7 @@ export default function GameplayScreen({navigation, route}) {
       return;
     }
     boosterGuardRef.current.shuffle = true;
-    consumeBooster('shuffle');
+    commitBoosterUse('shuffle', availability);
     playSound('click');
     setIsShuffling(true);
     setInputLocked(true);
@@ -222,16 +346,18 @@ export default function GameplayScreen({navigation, route}) {
       boosterTimerRef.current = null;
       setActivityVersion(current => current + 1);
     }, BOOSTER_CONFIG.shuffle.animationDurationMs);
-  }, [board, boosters.shuffle, complete, config, consumeBooster, inputLocked,
+  }, [board, commitBoosterUse, complete, config, inputLocked,
     isShuffling, magnetProductIds.size, paused, playSound,
-    showBoosterFeedback, timeUp]);
+    showBoosterFeedback, timeUp, validateBooster]);
 
   const handleFreeze = useCallback(() => {
     if (inputLocked || paused || timeUp || complete || isShuffling ||
         boosterGuardRef.current.freeze || isTimeFrozen ||
-        magnetProductIds.size > 0 || boosters.freeze <= 0) return;
+        magnetProductIds.size > 0) return;
+    const availability = validateBooster('freeze');
+    if (!availability) return;
     boosterGuardRef.current.freeze = true;
-    consumeBooster('freeze');
+    commitBoosterUse('freeze', availability);
     playSound('click');
     setIsTimeFrozen(true);
     freezeTimerRef.current = setTimeout(() => {
@@ -239,8 +365,9 @@ export default function GameplayScreen({navigation, route}) {
       boosterGuardRef.current.freeze = false;
       freezeTimerRef.current = null;
     }, BOOSTER_CONFIG.freeze.durationMs);
-  }, [boosters.freeze, complete, consumeBooster, inputLocked, isShuffling,
-    isTimeFrozen, magnetProductIds.size, paused, playSound, timeUp]);
+  }, [commitBoosterUse, complete, inputLocked, isShuffling,
+    isTimeFrozen, magnetProductIds.size, paused, playSound, timeUp,
+    validateBooster]);
 
   useEffect(() => {
     if (!complete && !timeUp) return;
@@ -265,22 +392,51 @@ export default function GameplayScreen({navigation, route}) {
     const cleared = resolution.board.map((item, index) =>
       resolution.indices.has(index) ? null : item,
     );
-    const isComplete = resolution.levelComplete;
+    const isComplete = cleared.every(item => item === null);
     playSound('match');
     setBoard(cleared);
     setMatchingIndices(new Set());
-    setCoinFeedback(null);
+    completedMatchesRef.current = resolution.completedMatches;
+    setCompletedMatches(resolution.completedMatches);
+    matchCoinsRef.current += resolution.reward;
+    awardMatchCoins({
+      attemptId: attemptIdRef.current,
+      matchSequence: resolution.completedMatches,
+      amount: resolution.reward,
+    });
+    setCoinFeedback(`+${resolution.reward}`);
+    if (coinFeedbackTimerRef.current) clearTimeout(coinFeedbackTimerRef.current);
+    coinFeedbackTimerRef.current = setTimeout(() => setCoinFeedback(null), 800);
 
     if (isComplete && !completedRef.current) {
       completedRef.current = true;
-      const earnedStars = getStars(timeLeft, config);
-      saveLevelStars(level, earnedStars);
+      const earnedStars = capStarsAfterContinues(
+        getStars(timeLeft, config),
+        continuesUsed,
+      );
+      const reward = getRewardBreakdown({
+        level,
+        matchGroups: resolution.completedMatches,
+        replay: Boolean(levelStars?.[level]),
+      });
+      setRewardSummary(reward);
+      completeLevel({
+        attemptId: attemptIdRef.current,
+        level,
+        matchGroups: resolution.completedMatches,
+        score: calculateGameplayScore(
+          resolution.completedMatches,
+          timeLeft,
+          continuesUsed,
+        ),
+        stars: earnedStars,
+      });
       setComplete(true);
       playSound('complete');
     } else {
       setInputLocked(false);
     }
-  }, [config, level, playSound, saveLevelStars, timeLeft]);
+  }, [awardMatchCoins, completeLevel, config, continuesUsed, level, levelStars, playSound, timeLeft]);
 
   const resolveMatches = useCallback(
     nextBoard => {
@@ -298,25 +454,22 @@ export default function GameplayScreen({navigation, route}) {
 
       const indices = new Set(groups.flat());
       const reward = groups.length * config.matchReward;
-      completedMatchesRef.current += groups.length;
-      setCompletedMatches(completedMatchesRef.current);
+      const nextCompletedMatches = completedMatchesRef.current + groups.length;
       setInputLocked(true);
       setHintIndices(new Set());
       setSelectedIndex(null);
       setMatchingIndices(indices);
-      setMatchCoins(current => current + reward);
-      addCoins(reward);
-      setCoinFeedback(`+${reward}`);
       matchResolutionRef.current = {
         board: nextBoard,
         indices,
-        levelComplete: completedMatchesRef.current >= config.targetMatches,
+        completedMatches: nextCompletedMatches,
+        reward,
       };
       // Safety fallback only. Normally ProductItem calls completion from the
       // actual UI-thread disappear animation at exactly 400ms.
       timeoutRef.current = setTimeout(finishMatchAnimation, 650);
     },
-    [addCoins, config, finishMatchAnimation],
+    [config, finishMatchAnimation],
   );
 
   const moveProduct = useCallback(
@@ -365,6 +518,11 @@ export default function GameplayScreen({navigation, route}) {
     <ImageBackground source={background} resizeMode="cover" style={styles.screen}>
       <View style={styles.tint} />
       <StatusBar hidden />
+      <CoinDeductionPopup
+        amount={coinDeduction?.amount}
+        animationId={coinDeduction?.id}
+        onComplete={handleCoinDeductionComplete}
+      />
       <SafeAreaView style={styles.safeArea}>
         <Animated.View style={[styles.gameContent, entranceStyle]}>
         <View style={styles.gameHeader}>
@@ -392,6 +550,7 @@ export default function GameplayScreen({navigation, route}) {
         <View style={styles.boardArea}>
           <ShelfBoard
             board={board}
+            boardHeight={boardHeight}
             boardSize={boardSize}
             columns={config.columns}
             disabled={inputLocked || paused || complete || timeUp}
@@ -403,6 +562,7 @@ export default function GameplayScreen({navigation, route}) {
             onDrop={handleDrop}
             onTap={handleTap}
             rows={config.rows}
+            generatedShelves={config.generatedShelves}
             shelfSource={SHELF_ASSETS[config.shelf]}
             selectedIndex={selectedIndex}
           />
@@ -415,31 +575,31 @@ export default function GameplayScreen({navigation, route}) {
           <Text style={styles.boosterFeedback}>{boosterFeedback}</Text>
         ) : null}
         <BoosterBar
-          boosters={boosters}
+          boosterState={boosterState}
           busy={inputLocked || paused || timeUp || complete || isShuffling || magnetProductIds.size > 0}
           freezeActive={isTimeFrozen}
+          level={level}
           magnetActive={magnetProductIds.size > 0}
           onFreeze={handleFreeze}
           onMagnet={handleMagnet}
           onShuffle={handleShuffle}
           shuffleActive={isShuffling}
+          uses={boosterUses}
         />
 
         <Text style={styles.instruction}>
-          Match 3 on one shelf  •  {completedMatches}/{config.targetMatches}
+          Clear the shelf  •  {board.filter(Boolean).length} items left
         </Text>
         </Animated.View>
       </SafeAreaView>
 
-      <Modal animationType="fade" transparent visible={paused || timeUp}>
+      <Modal animationType="fade" transparent visible={paused}>
         <View style={styles.modalOverlay}>
           <View style={styles.pauseCard}>
-            <Text style={styles.pauseTitle}>{timeUp ? 'TIME UP!' : 'PAUSED'}</Text>
-            {!timeUp ? (
-              <Pressable onPress={() => setPaused(false)} style={styles.modalButton}>
-                <Text style={styles.modalButtonText}>RESUME</Text>
-              </Pressable>
-            ) : null}
+            <Text style={styles.pauseTitle}>PAUSED</Text>
+            <Pressable onPress={() => setPaused(false)} style={styles.modalButton}>
+              <Text style={styles.modalButtonText}>RESUME</Text>
+            </Pressable>
             <Pressable onPress={restartLevel} style={styles.secondaryButton}>
               <Text style={styles.secondaryText}>RESTART LEVEL</Text>
             </Pressable>
@@ -450,9 +610,34 @@ export default function GameplayScreen({navigation, route}) {
         </View>
       </Modal>
 
+      <BoosterUnlockModal
+        booster={unseenUnlockedBooster}
+        onDismiss={() => unseenUnlockedBooster && dismissBoosterUnlock(unseenUnlockedBooster)}
+        visible={Boolean(unseenUnlockedBooster) && !complete && !timeUp}
+      />
+
+      <TimeUpModal
+        adStatus={rewardedAd.status}
+        completedMatches={completedMatches}
+        continuesUsed={continuesUsed}
+        onContinue={() => {
+          if (!canContinueAfterTimeUp(continuesUsed)) return;
+          adPurposeRef.current = 'continue';
+          if (rewardedAd.status === 'error') rewardedAd.retry();
+          else rewardedAd.show();
+        }}
+        onHome={() => navigation.navigate('MainTabs', {screen: 'Home'})}
+        onRestart={restartLevel}
+        targetMatches={config.targetMatches}
+        visible={timeUp && !complete}
+      />
+
       <LevelCompleteModal
-        coins={matchCoins}
+        adStatus={rewardedCoinsClaimed ? 'earned' : rewardedAd.status}
+        completionCoins={rewardSummary.completionCoins}
+        extraCoins={rewardSummary.totalCoins}
         level={level}
+        matchCoins={rewardSummary.matchCoins}
         onHome={() => navigation.navigate('MainTabs', {screen: 'Home'})}
         onNext={() => {
           if (LEVEL_CONFIGS[level + 1]) {
@@ -461,8 +646,18 @@ export default function GameplayScreen({navigation, route}) {
             navigation.navigate('LevelSelect');
           }
         }}
-        score={(matchCoins / config.matchReward) * 1000 + timeLeft * 10}
-        stars={getStars(timeLeft, config)}
+        onWatchAd={() => {
+          adPurposeRef.current = 'levelComplete';
+          if (rewardedAd.status === 'error') rewardedAd.retry();
+          else rewardedAd.show();
+        }}
+        score={calculateGameplayScore(completedMatches, timeLeft, continuesUsed)}
+        stars={capStarsAfterContinues(getStars(timeLeft, config), continuesUsed)}
+        totalCoins={
+          rewardedCoinsClaimed
+            ? rewardSummary.totalCoins * 2
+            : rewardSummary.totalCoins
+        }
         visible={complete}
       />
     </ImageBackground>

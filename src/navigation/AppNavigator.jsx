@@ -6,9 +6,8 @@ import GameTabBar from '../components/GameTabBar';
 import MainMenuScreen from '../screens/MainMenuScreen';
 import GameplayScreen from '../screens/GameplayScreen';
 import LevelSelectScreen from '../screens/LevelSelectScreen';
-import ShopScreen from '../screens/ShopScreen';
-import {EventsScreen, RankingScreen, SettingsScreen} from '../screens/TabPages';
-import {GameProgressProvider} from '../context/GameProgressContext';
+import RewardsScreen from '../screens/RewardsScreen';
+import {CheckInScreen, RankingScreen, SettingsScreen} from '../screens/TabPages';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -16,7 +15,7 @@ const Stack = createNativeStackNavigator();
 function HomeScreen({navigation}) {
   return (
     <MainMenuScreen
-      onCoinShop={() => navigation.navigate('Store')}
+      onDailyReward={() => navigation.navigate('Rewards')}
       onPlay={() => navigation.navigate('LevelSelect')}
       onSettings={() => navigation.navigate('Settings')}
     />
@@ -34,8 +33,8 @@ function TabNavigator() {
       initialRouteName="Home"
       screenOptions={{headerShown: false}}
       tabBar={renderGameTabBar}>
-      <Tab.Screen name="Store" component={ShopScreen} />
-      <Tab.Screen name="Events" component={EventsScreen} />
+      <Tab.Screen name="CheckIn" component={CheckInScreen} options={{tabBarLabel: 'Check-In'}} />
+      <Tab.Screen name="Rewards" component={RewardsScreen} />
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Ranking" component={RankingScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
@@ -45,14 +44,12 @@ function TabNavigator() {
 
 export default function AppNavigator() {
   return (
-    <GameProgressProvider>
-      <NavigationContainer>
-        <Stack.Navigator screenOptions={{headerShown: false}}>
-          <Stack.Screen name="MainTabs" component={TabNavigator} />
-          <Stack.Screen name="LevelSelect" component={LevelSelectScreen} />
-          <Stack.Screen name="Gameplay" component={GameplayScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </GameProgressProvider>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{headerShown: false}}>
+        <Stack.Screen name="MainTabs" component={TabNavigator} />
+        <Stack.Screen name="LevelSelect" component={LevelSelectScreen} />
+        <Stack.Screen name="Gameplay" component={GameplayScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }

@@ -5,10 +5,11 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import {useGameProgress} from '../context/GameProgressContext';
 import useEntranceAnimation from '../hooks/useEntranceAnimation';
 import {LEVEL_CONFIGS} from '../game/levelConfigs';
+import {getWorldLevels, isLevelCompleted, isWorldCompleted} from '../game/levelWorlds';
 
 const WORLDS = [
-  {id: 1, levels: Array.from({length: 16}, (_, index) => index + 1)},
-  {id: 2, levels: Array.from({length: 4}, (_, index) => index + 17)},
+  {id: 1, levels: getWorldLevels(1)},
+  {id: 2, levels: getWorldLevels(2)},
 ];
 const coin3d = require('../assets/coin-3d.png');
 
@@ -19,6 +20,9 @@ export default function LevelSelectScreen({navigation}) {
   const contentWidth = Math.min(width * 0.9, 500);
   const gap = Math.max(12, Math.min(22, contentWidth * 0.065));
   const cardSize = (contentWidth - gap * 2) / 3;
+  const visibleWorlds = WORLDS.filter(world =>
+    world.id === 1 || isWorldCompleted(levelStars, world.id - 1),
+  );
 
   return (
     <View style={styles.screen}>
@@ -39,7 +43,7 @@ export default function LevelSelectScreen({navigation}) {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Animated.View style={[styles.content, {width: contentWidth}, entranceStyle]}>
-          {WORLDS.map(world => (
+          {visibleWorlds.map(world => (
             <WorldSection
               cardSize={cardSize}
               gap={gap}
@@ -66,6 +70,7 @@ function WorldSection({world, cardSize, gap, levelStars, navigation, unlockedLev
       <View style={[styles.grid, {gap}]}>
         {world.levels.map(levelNumber => (
           <LevelCard
+            completed={isLevelCompleted(levelStars, levelNumber)}
             key={levelNumber}
             level={levelNumber}
             locked={levelNumber > unlockedLevel || !LEVEL_CONFIGS[levelNumber]}
@@ -79,20 +84,27 @@ function WorldSection({world, cardSize, gap, levelStars, navigation, unlockedLev
   );
 }
 
-function LevelCard({level, locked, stars, size, onPress}) {
+function LevelCard({level, locked, completed, stars, size, onPress}) {
+  const disabled = locked || completed;
   return (
     <Pressable
-      accessibilityLabel={locked ? `Level ${level}, locked` : `Level ${level}`}
+      accessibilityLabel={locked ? `Level ${level}, locked`
+        : completed ? `Level ${level}, completed` : `Level ${level}`}
       accessibilityRole="button"
-      accessibilityState={{disabled: locked}}
-      disabled={locked}
+      accessibilityState={{disabled}}
+      disabled={disabled}
       onPress={onPress}
-      style={({pressed}) => [styles.levelDepth, {width: size, height: size}, locked && styles.lockedDepth, pressed && styles.cardPressed]}>
-      <View style={[styles.levelCard, locked && styles.lockedCard]}>
+      style={({pressed}) => [styles.levelDepth, {width: size, height: size}, completed && styles.completedDepth, locked && styles.lockedDepth, pressed && styles.cardPressed]}>
+      <View style={[styles.levelCard, completed && styles.completedCard, locked && styles.lockedCard]}>
         {locked ? (
           <MaterialCommunityIcons color="#625E58" name="lock" size={size * 0.43} />
         ) : (
           <>
+            {completed ? (
+              <View style={styles.completedBadge}>
+                <MaterialCommunityIcons color="#FFFFFF" name="check-bold" size={size * 0.15} />
+              </View>
+            ) : null}
             <Text style={[styles.levelNumber, {fontSize: size * 0.36}]}>{level}</Text>
             <View style={styles.starRow}>
               {[1, 2, 3].map(star => <MaterialCommunityIcons color={star <= stars ? '#FFD628' : '#D5B5E3'} key={star} name="star" size={size * 0.22} />)}
@@ -125,6 +137,9 @@ const styles = StyleSheet.create({
   grid: {flexDirection: 'row', flexWrap: 'wrap'},
   levelDepth: {borderRadius: 14, paddingBottom: 8, backgroundColor: '#57208F', shadowColor: '#5B5148', shadowOffset: {width: 0, height: 7}, shadowOpacity: 0.42, shadowRadius: 6, elevation: 8},
   levelCard: {flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#8245CA', borderWidth: 3, borderColor: '#A978DD'},
+  completedDepth: {backgroundColor: '#B87A00', shadowColor: '#E7A900', shadowOpacity: 0.62, elevation: 11},
+  completedCard: {backgroundColor: '#7131B8', borderColor: '#FFD538', borderWidth: 4},
+  completedBadge: {position: 'absolute', top: 6, right: 6, width: 25, height: 25, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#49C92D', borderWidth: 2, borderColor: '#D8FF91', elevation: 5},
   levelNumber: {color: '#FFF', fontWeight: '900', textShadowColor: '#4B1A7C', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 1},
   starRow: {position: 'absolute', bottom: 7, flexDirection: 'row'},
   lockedDepth: {backgroundColor: '#827B73'},

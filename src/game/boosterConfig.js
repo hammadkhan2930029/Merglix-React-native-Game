@@ -1,22 +1,24 @@
 export const BOOSTER_CONFIG = {
   magnet: {
-    initialQuantity: 3,
+    unlockLevel: 11,
+    coinCost: 20,
+    maxUsesPerAttempt: 2,
     highlightDurationMs: 2500,
   },
   shuffle: {
-    initialQuantity: 2,
+    unlockLevel: 16,
+    coinCost: 25,
+    maxUsesPerAttempt: 2,
     animationDurationMs: 260,
     retryLimit: 200,
   },
   freeze: {
-    initialQuantity: 2,
+    unlockLevel: 21,
+    coinCost: 30,
+    maxUsesPerAttempt: 1,
     durationMs: 10000,
   },
 };
 
-export const INITIAL_BOOSTERS = Object.fromEntries(
-  Object.entries(BOOSTER_CONFIG).map(([name, config]) => [
-    name,
-    config.initialQuantity,
-  ]),
-);
+// Retained only to migrate saves made by the old inventory-based booster system.
+export const INITIAL_BOOSTERS = {magnet: 0, shuffle: 0, freeze: 0};

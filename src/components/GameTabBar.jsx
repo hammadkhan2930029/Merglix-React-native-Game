@@ -12,8 +12,8 @@ const wp = widthPercentageToDP;
 const hp = heightPercentageToDP;
 
 const TAB_ICONS = {
-  Store: 'storefront',
-  Events: 'calendar-star',
+  CheckIn: 'calendar-check',
+  Rewards: 'gift',
   Home: 'home-outline',
   Ranking: 'podium',
   Settings: 'cog',
