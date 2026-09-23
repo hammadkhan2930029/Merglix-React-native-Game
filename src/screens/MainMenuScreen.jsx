@@ -34,7 +34,7 @@ export default function MainMenuScreen({
   onSettings = () => {},
 }) {
   const {coins, level} = useGameProgress();
-  const levelLabel = LEVEL_CONFIGS[level] ? `LEVEL ${level}` : 'WORLD 1 COMPLETE';
+  const levelLabel = LEVEL_CONFIGS[level] ? `LEVEL ${level}` : 'COMING SOON';
   const entranceStyle = useEntranceAnimation();
   const logoFloat = useRef(new Animated.Value(0)).current;
   const playPulse = useRef(new Animated.Value(1)).current;

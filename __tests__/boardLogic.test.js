@@ -65,6 +65,16 @@ const EXPECTED_LEVELS = {
   48: {types: 10, matches: 10, items: 30, rows: 5, timer: 100, completion: 30},
   49: {types: 10, matches: 10, items: 30, rows: 5, timer: 100, completion: 30},
   50: {types: 10, matches: 10, items: 30, rows: 5, timer: 100, completion: 30},
+  51: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  52: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  53: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  54: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  55: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  56: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  57: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  58: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  59: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  60: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
 };
 
 test('level timers increase automatically by 10 seconds every 10 levels', () => {
@@ -124,7 +134,7 @@ test('Levels 6-10 rotate products from the Merglix element asset set', () => {
   ).size).toBeGreaterThanOrEqual(11);
 });
 
-describe.each(Array.from({length: 40}, (_, index) => index + 11))(
+describe.each(Array.from({length: 50}, (_, index) => index + 11))(
   'Level %i full-shelf contract',
   level => {
     const config = LEVEL_CONFIGS[level];
@@ -199,6 +209,15 @@ test('Levels 41-50 follow the approved new-product rollout', () => {
   expect(PRODUCT_ASSETS.corn).toBeTruthy();
   expect(PRODUCT_ASSETS.grapes).toBeTruthy();
   expect(PRODUCT_ASSETS.lemon).toBeTruthy();
+});
+
+test('Level 56 introduces the final World 2 product assets', () => {
+  expect(LEVEL_CONFIGS[56].productTypes).toEqual(expect.arrayContaining([
+    'watermelon', 'strawberry', 'pineapple', 'sooperBiscuit',
+    'corn', 'grapes', 'lemon',
+  ]));
+  expect(PRODUCT_ASSETS.watermelon).toBeTruthy();
+  expect(PRODUCT_ASSETS.strawberry).toBeTruthy();
 });
 
 test('five-row levels use the dedicated five-row shelf asset', () => {

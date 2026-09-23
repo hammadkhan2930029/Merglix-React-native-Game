@@ -14,8 +14,10 @@ function ShelfBoard({board, rows, columns, boardSize, boardHeight = boardSize,
     const horizontalInset = boardSize * 0.065;
     // Each shelf image has slightly different wooden-frame padding. Slot
     // bottoms must meet the upper face of a divider, not its middle.
-    const verticalInsets = rows === 5
-      ? {top: 0.016, bottom: 0.076}
+    const verticalInsets = rows === 6
+      ? {top: 0.045, bottom: 0.081}
+      : rows === 5
+        ? {top: 0.016, bottom: 0.076}
       : rows === 4
         ? {top: 0.025, bottom: 0.065}
         : {top: 0.03, bottom: 0.065};

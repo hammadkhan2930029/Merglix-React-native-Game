@@ -165,7 +165,11 @@ export default function GameplayScreen({navigation, route}) {
   );
 
   const boardSize = Math.min(width * 0.94, height * 0.59, 620);
-  const shelfHeightRatio = config.rows === 5 ? 1.18 : config.rows === 4 ? 1.05 : 1;
+  const shelfHeightRatio = config.rows === 6
+    ? 1.28
+    : config.rows === 5
+      ? 1.18
+      : config.rows === 4 ? 1.05 : 1;
   const boardHeight = Math.min(boardSize * shelfHeightRatio, height * 0.62);
 
   const restartLevel = useCallback(() => {
