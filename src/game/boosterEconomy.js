@@ -1,9 +1,6 @@
 import {BOOSTER_CONFIG} from './boosterConfig';
 
 export const INITIAL_BOOSTER_STATE = {
-  magnetFirstUseConsumed: false,
-  shuffleFirstUseConsumed: false,
-  freezeFirstUseConsumed: false,
   magnetUnlockSeen: false,
   shuffleUnlockSeen: false,
   freezeUnlockSeen: false,
@@ -19,13 +16,8 @@ export function isBoosterUnlocked(name, level) {
   return level >= (BOOSTER_CONFIG[name]?.unlockLevel ?? Infinity);
 }
 
-export function isFirstBoosterUseFree(state, name) {
-  return !normalizeBoosterState(state)[`${name}FirstUseConsumed`];
-}
-
-export function canAffordBooster(coins, state, name) {
-  return isFirstBoosterUseFree(state, name) ||
-    coins >= (BOOSTER_CONFIG[name]?.coinCost ?? Infinity);
+export function canAffordBooster(coins, name) {
+  return coins >= (BOOSTER_CONFIG[name]?.coinCost ?? Infinity);
 }
 
 export function hasAttemptUseRemaining(uses, name) {
@@ -40,25 +32,22 @@ export function getBoosterAvailability({name, level, coins, boosterState, uses})
   if (!hasAttemptUseRemaining(uses, name)) {
     return {allowed: false, reason: 'limit'};
   }
-  const free = isFirstBoosterUseFree(boosterState, name);
-  if (!free && coins < config.coinCost) {
+  if (coins < config.coinCost) {
     return {allowed: false, reason: 'coins', cost: config.coinCost};
   }
-  return {allowed: true, free, cost: free ? 0 : config.coinCost};
+  return {allowed: true, cost: config.coinCost};
 }
 
 export function applySuccessfulBoosterUse(progress, name) {
   const config = BOOSTER_CONFIG[name];
   if (!config) return progress;
   const boosterState = normalizeBoosterState(progress.boosterState);
-  const freeKey = `${name}FirstUseConsumed`;
-  const free = !boosterState[freeKey];
-  if (!free && (progress.coins ?? 0) < config.coinCost) return progress;
+  if ((progress.coins ?? 0) < config.coinCost) return progress;
 
   return {
     ...progress,
-    coins: Math.max(0, (progress.coins ?? 0) - (free ? 0 : config.coinCost)),
-    boosterState: {...boosterState, [freeKey]: true},
+    coins: Math.max(0, (progress.coins ?? 0) - config.coinCost),
+    boosterState,
   };
 }
 

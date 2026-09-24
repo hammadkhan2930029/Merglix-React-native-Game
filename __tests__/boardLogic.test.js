@@ -75,6 +75,16 @@ const EXPECTED_LEVELS = {
   58: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
   59: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
   60: {types: 12, matches: 12, items: 36, rows: 6, timer: 110, completion: 30},
+  61: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  62: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  63: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  64: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  65: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  66: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  67: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  68: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  69: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
+  70: {types: 12, matches: 12, items: 36, rows: 6, timer: 120, completion: 35},
 };
 
 test('level timers increase automatically by 10 seconds every 10 levels', () => {
@@ -134,7 +144,7 @@ test('Levels 6-10 rotate products from the Merglix element asset set', () => {
   ).size).toBeGreaterThanOrEqual(11);
 });
 
-describe.each(Array.from({length: 50}, (_, index) => index + 11))(
+describe.each(Array.from({length: 60}, (_, index) => index + 11))(
   'Level %i full-shelf contract',
   level => {
     const config = LEVEL_CONFIGS[level];

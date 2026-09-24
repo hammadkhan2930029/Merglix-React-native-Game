@@ -30,26 +30,24 @@ describe('booster unlock progression', () => {
 });
 
 describe('booster economy', () => {
-  test.each(['magnet', 'shuffle', 'freeze'])('%s first successful use is free', name => {
+  test.each(['magnet', 'shuffle', 'freeze'])('%s charges its configured cost on the first successful use', name => {
     const before = {coins: 100, boosterState: INITIAL_BOOSTER_STATE};
     const after = applySuccessfulBoosterUse(before, name);
-    expect(after.coins).toBe(100);
-    expect(after.boosterState[`${name}FirstUseConsumed`]).toBe(true);
+    expect(after.coins).toBe(100 - BOOSTER_CONFIG[name].coinCost);
   });
 
-  test.each(['magnet', 'shuffle', 'freeze'])('%s later use deducts its configured cost', name => {
-    const before = {
-      coins: 100,
-      boosterState: {...INITIAL_BOOSTER_STATE, [`${name}FirstUseConsumed`]: true},
-    };
-    expect(applySuccessfulBoosterUse(before, name).coins)
-      .toBe(100 - BOOSTER_CONFIG[name].coinCost);
+  test.each(['magnet', 'shuffle', 'freeze'])('%s availability requires its configured cost', name => {
+    const availability = getBoosterAvailability({
+      name, level: BOOSTER_CONFIG[name].unlockLevel, coins: BOOSTER_CONFIG[name].coinCost - 1,
+      boosterState: INITIAL_BOOSTER_STATE, uses: INITIAL_ATTEMPT_BOOSTER_USES,
+    });
+    expect(availability).toMatchObject({allowed: false, reason: 'coins'});
   });
 
   test('insufficient funds preserve the exact progress object', () => {
     const before = {
       coins: 19,
-      boosterState: {...INITIAL_BOOSTER_STATE, magnetFirstUseConsumed: true},
+      boosterState: INITIAL_BOOSTER_STATE,
     };
     expect(applySuccessfulBoosterUse(before, 'magnet')).toBe(before);
   });
